@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
@@ -17,6 +16,7 @@ class DataIterator(Dataset):
         return self._length
 
     def _parsing_dataset(self, dataset: pd.DataFrame):
+        dataset['UserID'] = dataset['UserID'].astype(int)
         dataset['SessionID'] = dataset['SessionID'].astype(int)
         dataset['Target'] = dataset['Target'].astype(int)
         dataset['Session'] = dataset['Session'].map(eval)
@@ -24,22 +24,14 @@ class DataIterator(Dataset):
 
         self.dataset = []
         for row in dataset.to_dict(orient='records'):
-            session = self._to_tensor(row['Session'])
-            padding_mask = torch.where(session == CONFIG.PAD_ID, 1., 0.)
-            negative = self._to_tensor(row['Negative'])
-            target = self._to_tensor(row['Target'])
-            self.dataset.append(
-                (session, padding_mask, negative, target)
-            )
+            self.dataset.append(self._parsing_row(row))
         self._length: int = len(self.dataset)
 
+    def _parsing_row(self, row):
+        raise NotImplementedError('_parsing_row is not implemented')
+
     def __getitem__(self, item):
-        session, padding_mask, negative, target = self.dataset[item]
-        if np.random.random() > 0.5:
-            return session, padding_mask, target, self._to_tensor([1.], d_type=torch.float)
-        else:
-            idx = torch.randint(0, negative.size(0), (1,))
-            return session, padding_mask, negative[idx].squeeze(0), self._to_tensor([0.], d_type=torch.float)
+        raise NotImplementedError('__getitem__ is not implemented')
 
     @staticmethod
     def _to_tensor(value, d_type=torch.int64):

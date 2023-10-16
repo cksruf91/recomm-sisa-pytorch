@@ -52,7 +52,6 @@ class InteractionEncoder(nn.Module):
         attention = self.softmax(torch.matmul(s_state, attention[:, None, :].transpose(2, 1)))
 
         h_state = h_state.squeeze(0)
-
         for i in range(s_state.size(1)):  # through sequence
             h_state = self.augru(x=s_state[:, i, :], h_prev=h_state, attention_score=attention[:, i, :])
 

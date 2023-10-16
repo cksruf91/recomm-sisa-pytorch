@@ -20,14 +20,13 @@ class AUGRUCell(nn.Module):
         for w in self.parameters():
             w.data.uniform_(-std, std)
 
-    def forward(self, x: Tensor, h_prev: Tensor, attention_score: Tensor):
+    def forward(self, x: Tensor, h_prev: Tensor, attention_score: Tensor) -> Tensor:
         temp_input = torch.cat([h_prev, x], dim=-1)
 
         reset = self.reset_gate(temp_input)
         update = self.update_gate(temp_input)
 
         h_hat = self.h_hat_gate(torch.cat([h_prev * reset, x], dim=-1))
-        # print(f'AUGRUCell - update: {update.shape} / attention_score: {attention_score.shape}')
         update = attention_score * update
         h_current = ((1. - update) * h_prev) + (update * h_hat)
 
@@ -37,20 +36,20 @@ class AUGRUCell(nn.Module):
 class InteractionEncoder(nn.Module):
     def __init__(self, emb_dim: int):
         super().__init__()
-        self.w = nn.Parameter(torch.rand(emb_dim, emb_dim))
+
+        self.w = nn.Linear(in_features=emb_dim, out_features=emb_dim, bias=False)
+        # self.w = nn.Parameter(torch.rand(emb_dim, emb_dim))
         self.softmax = nn.Softmax(dim=1)
         self.gru = nn.GRU(input_size=emb_dim, hidden_size=emb_dim, num_layers=1, bias=True, batch_first=True)
         self.augru = AUGRUCell(input_dim=emb_dim, hidden_dim=emb_dim, bias=True)
 
-    def forward(self, session_emb: Tensor, target_emb: Tensor):
-        # print(f'InteractionEncoder - session_emb : {session_emb.shape} / target_emb : {target_emb[:, None, :].shape}')
-        target_emb = target_emb[:, None, :].transpose(2, 1)
+    def forward(self, session_emb: Tensor, target_emb: Tensor) -> Tensor:
+        # target_emb = target_emb[:, None, :].transpose(2, 1)
         s_state, h_state = self.gru(session_emb)
 
         # Attention
-        attention = torch.matmul(s_state, self.w)
-        attention = torch.matmul(attention, target_emb)
-        attention = self.softmax(attention)
+        attention = self.w(target_emb)
+        attention = self.softmax(torch.matmul(s_state, attention[:, None, :].transpose(2, 1)))
 
         h_state = h_state.squeeze(0)
 
@@ -66,7 +65,7 @@ class SessionEncoder(nn.Module):
         super().__init__()
         self.transformer = nn.TransformerEncoderLayer(d_model=emb_dim, nhead=4, batch_first=False)
 
-    def forward(self, session_emb, padding_mask, src_mask):
+    def forward(self, session_emb: Tensor, padding_mask: Tensor, src_mask: Tensor):
         session_emb = self.transformer(
             src=session_emb.transpose(0, 1), src_mask=src_mask, src_key_padding_mask=padding_mask, is_causal=False
         )
@@ -74,6 +73,7 @@ class SessionEncoder(nn.Module):
 
 
 class SessionInterestSelfAttention(nn.Module):
+    """ https://www.nature.com/articles/s41598-021-03871-y """
 
     def __init__(self, num_item: int, emb_dim: int, max_len: int, pad_id: int):
         super().__init__()
@@ -97,9 +97,7 @@ class SessionInterestSelfAttention(nn.Module):
         session_emb = self.session_encoder(
             session_emb=session_emb, padding_mask=padding_mask, src_mask=src_mask
         )
-        # print(f'session_emb : {session_emb[0, 0, :]} / target_emb : {target_emb[0]}')
         feature = self.interaction_encoder(session_emb=session_emb, target_emb=target_emb)
-        # feature = torch.cat([session_emb[:, 0, :], target_emb], dim=-1)
         feature = torch.cat([feature, target_emb], dim=-1)
 
         return self.feed_forward(feature)

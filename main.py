@@ -1,3 +1,4 @@
+import json
 import argparse
 
 import pandas as pd
@@ -14,7 +15,7 @@ CONFIG = Config()
 def get_argument():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-t', '--type', default='data', choices=['data', 'train'], type=str
+        '-t', '--type', required=True, choices=['data', 'train'], type=str
     )
     return parser.parse_args()
 
@@ -24,10 +25,10 @@ def main():
     if args.type == 'data':
         PreProcess().run().save()
     elif args.type == 'train':
-        train_data = pd.read_csv(CONFIG.TRAIN_DATA)
-        max_item_id = train_data['Session'].map(lambda x: max(eval(x))).max()
+        mapper = json.load(open(CONFIG.MAPPER, mode='r'))
+        max_item_id = int(max(mapper.values()))
 
-        train_data = DataIterator(train_data)
+        train_data = DataIterator(pd.read_csv(CONFIG.TRAIN_DATA))
         val_data = DataIterator(pd.read_csv(CONFIG.VAL_DATA))
         model = SessionInterestSelfAttention(num_item=max_item_id + 1, emb_dim=128, max_len=20, pad_id=CONFIG.PAD_ID)
         Train(model=model, epoch=50).run(train_data=train_data, val_data=val_data)

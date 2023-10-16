@@ -2,7 +2,7 @@ import sys
 import time
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, Any, Self
+from typing import Dict, Any
 
 import numpy as np
 import torch
@@ -11,8 +11,8 @@ from torch import Tensor
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
-from src.ml.model.sisa import SessionInterestSelfAttention
 from src.data_iterator import DataIterator
+from src.ml.model.sisa import SessionInterestSelfAttention
 
 
 class Metrics(metaclass=ABCMeta):
@@ -82,7 +82,8 @@ class TrainSummary:
         self.metrics[f'val_{func}'] = value
 
     def __repr__(self):
-        summary = f'epoch {self.epoch:02d} loss: {self.train_loss / self.train_step:3.3f} '
+        summary = (f'epoch {self.epoch:02d} loss: {self.train_loss / self.train_step:3.3f} '
+                   f'val_loss: {self.val_loss / self.val_step:3.3f}')
         for k, v in self.metrics.items():
             summary += f" {k} : {v:3.3f}"
         return summary
@@ -94,8 +95,9 @@ class Train:
         self.model = model
         self.epoch = epoch
 
-        self.optim = AdamW(params=model.parameters(), lr=0.01)
+        self.optim = AdamW(params=model.parameters(), lr=0.005)
         self.cross_entropy = nn.BCELoss()
+        self.metrics = [Accuracy()]
 
     def _backpropagation(self, loss: Tensor):
         self.optim.zero_grad()
@@ -103,40 +105,59 @@ class Train:
         nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
         self.optim.step()
 
-    def run(self, train_data: DataIterator, val_data: DataIterator) -> Self:
+    def run(self, train_data: DataIterator, val_data: DataIterator):
         print('start training')
-        train_loader = DataLoader(train_data)
-        val_loader = DataLoader(val_data)
+        train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
+        val_loader = DataLoader(val_data, batch_size=32, shuffle=False)
 
+        for e in range(self.epoch):
+            summary = TrainSummary(epoch=e + 1)
+            summary = self._train(train_loader=train_loader, summary=summary)
+            summary = self._val(val_loader=val_loader, summary=summary)
+            print(summary)
+
+    def _train(self, train_loader: DataLoader, summary: TrainSummary):
         src_mask = generate_square_subsequent_mask(sz=20)
         total = len(train_loader)
 
-        metrics = [Accuracy()]
+        output = {'y_pred': [], 'y_true': []}
+        for step, (session, padding_mask, target, label) in enumerate(train_loader, start=1):
+            progressbar(total=total, i=step, prefix='train')
+            pred = self.model(
+                session_items=session, padding_mask=padding_mask, target_item=target, src_mask=src_mask
+            )
+            loss = self.cross_entropy(pred, label)
+            self._backpropagation(loss=loss)
 
-        for e in range(self.epoch):
-            e += 1
-            summary = TrainSummary(epoch=e)
+            summary.add_train_loss(loss.item())
+            pred = torch.where(pred > 0.5, 1, 0)
+            output['y_pred'].extend(pred.squeeze(0).cpu().tolist())
+            output['y_true'].extend(label.squeeze(0).cpu().tolist())
 
-            output = {'y_pred': [], 'y_true': []}
-            for step, (session, padding_mask, target, label) in enumerate(train_loader, start=1):
-                progressbar(total=total, i=step, prefix='train')
+        for func in self.metrics:
+            value = func(output['y_pred'], output['y_true'])
+            summary.add_train_metrics(func=func, value=value)
+        return summary
+
+    def _val(self, val_loader: DataLoader, summary: TrainSummary):
+        src_mask = generate_square_subsequent_mask(sz=20)
+
+        output = {'y_pred': [], 'y_true': []}
+        with torch.no_grad():
+            for step, (session, padding_mask, target, label) in enumerate(val_loader, start=1):
                 pred = self.model(
                     session_items=session, padding_mask=padding_mask, target_item=target, src_mask=src_mask
                 )
                 loss = self.cross_entropy(pred, label)
-                self._backpropagation(loss=loss)
-
-                summary.add_train_loss(loss.item())
-                pred = torch.where(pred > 0.5, 1, 0)
+                summary.add_val_loss(loss.item())
+                pred = torch.where(pred > 0.5, 1., 0.)
                 output['y_pred'].extend(pred.squeeze(0).cpu().tolist())
                 output['y_true'].extend(label.squeeze(0).cpu().tolist())
 
-            for func in metrics:
-                value = func(output['y_pred'], output['y_true'])
-                summary.add_train_metrics(func=func, value=value)
-
-            print(summary)
-        return self
+        for func in self.metrics:
+            value = func(output['y_pred'], output['y_true'])
+            summary.add_val_metrics(func=func, value=value)
+        return summary
 
     @staticmethod
     def init_weights(m):

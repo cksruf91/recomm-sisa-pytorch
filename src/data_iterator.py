@@ -14,7 +14,7 @@ class DataIterator(Dataset):
         self._parsing_dataset(dataset)
 
     def __len__(self):
-        return self._length // 10
+        return self._length
 
     def _parsing_dataset(self, dataset: pd.DataFrame):
         dataset['SessionID'] = dataset['SessionID'].astype(int)

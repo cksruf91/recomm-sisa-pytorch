@@ -1,7 +1,8 @@
-from typing import Optional, List, Set
+import json
+from typing import Optional, List, Set, Dict
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from typing_extensions import Self
 
@@ -17,6 +18,7 @@ class PreProcess:
         self.train_data: Optional[pd.DataFrame] = None
         self.val_data: Optional[pd.DataFrame] = None
         self.test_data: Optional[pd.DataFrame] = None
+        self.mapper: Dict[int, int] = {}
 
     def run(self) -> Self:
         ratings = self._data_load()
@@ -41,15 +43,15 @@ class PreProcess:
         # ItemID 생성
         drop_cols = set(ratings.columns) - {'SessionID', 'ItemID'}
 
-        mapper = {movie_id: item_id + 1 for item_id, movie_id in enumerate(train['MovieID'].unique())}
-        train['ItemID'] = train['MovieID'].map(lambda x: mapper[x])
+        self.mapper = {int(movie_id): int(item_id + 1) for item_id, movie_id in enumerate(train['MovieID'].unique())}
+        train['ItemID'] = train['MovieID'].map(lambda x: self.mapper[x])
         train.drop(columns=drop_cols, inplace=True)
 
-        val['ItemID'] = val['MovieID'].map(lambda x: mapper.get(x))
+        val['ItemID'] = val['MovieID'].map(lambda x: self.mapper.get(x))
         drop_index = val[val['ItemID'].isnull()].index
         val.drop(index=drop_index, columns=drop_cols, inplace=True)
 
-        test['ItemID'] = test['MovieID'].map(lambda x: mapper.get(x))
+        test['ItemID'] = test['MovieID'].map(lambda x: self.mapper.get(x))
         drop_index = test[test['ItemID'].isnull()].index
         test.drop(index=drop_index, columns=drop_cols, inplace=True)
 
@@ -68,6 +70,7 @@ class PreProcess:
         self.train_data.to_csv(CONFIG.TRAIN_DATA, index=True)
         self.val_data.to_csv(CONFIG.VAL_DATA, index=True)
         self.test_data.to_csv(CONFIG.TEST_DATA, index=True)
+        json.dump(self.mapper, open(CONFIG.MAPPER, mode='w'))
 
     def _aggregate(self, dataset, pop_item):
         return dataset.groupby('SessionID').agg(

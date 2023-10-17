@@ -26,19 +26,22 @@ class DeepFmTrainer:
         nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
         self.optim.step()
 
+    def _inference(self, output, x, label):
+        pred = self.model(x)
+        loss = self.cross_entropy(pred, label)
+        pred = torch.where(pred > 0.5, 1, 0)
+        output['y_pred'].extend(pred.squeeze(0).cpu().tolist())
+        output['y_true'].extend(label.squeeze(0).cpu().tolist())
+        return loss
+
     def train(self, train_loader: DataLoader, summary: TrainSummary) -> TrainSummary:
         total = len(train_loader)
         output = {'y_pred': [], 'y_true': []}
         for step, (x, label) in enumerate(train_loader, start=1):
             progressbar(total=total, i=step, prefix='train')
-            pred = self.model(x)
-            loss = self.cross_entropy(pred, label)
+            loss = self._inference(output, x, label)
             self._backpropagation(loss=loss)
-
             summary.add_train_loss(loss.item())
-            pred = torch.where(pred > 0.5, 1, 0)
-            output['y_pred'].extend(pred.squeeze(0).cpu().tolist())
-            output['y_true'].extend(label.squeeze(0).cpu().tolist())
 
         for func in self.metrics:
             value = func(output['y_pred'], output['y_true'])
@@ -49,17 +52,27 @@ class DeepFmTrainer:
         output = {'y_pred': [], 'y_true': []}
         with torch.no_grad():
             for step, (x, label) in enumerate(val_loader, start=1):
-                pred = self.model(x)
-                loss = self.cross_entropy(pred, label)
+                loss = self._inference(output, x, label)
                 summary.add_val_loss(loss.item())
-                pred = torch.where(pred > 0.5, 1., 0.)
-                output['y_pred'].extend(pred.squeeze(0).cpu().tolist())
-                output['y_true'].extend(label.squeeze(0).cpu().tolist())
 
         for func in self.metrics:
             value = func(output['y_pred'], output['y_true'])
             summary.add_val_metrics(func=func, value=value)
         return summary
+
+    def test(self, test_loader: DataLoader) -> None:
+        output = {'y_pred': [], 'y_true': []}
+        test_loss = 0
+        with torch.no_grad():
+            for step, (x, label) in enumerate(test_loader, start=1):
+                loss = self._inference(output, x, label)
+                test_loss += loss.item()
+
+        print(f'test result')
+        print(f'\ttest_loss: {test_loss / step:0.3f}')
+        for func in self.metrics:
+            value = func(output['y_pred'], output['y_true'])
+            print(f'\ttest_{func}: {value: 0.3f}')
 
     @staticmethod
     def init_weights(m):

@@ -32,9 +32,11 @@ def main():
 
         train_data = SisaIterator(pd.read_csv(CONFIG.TRAIN_DATA))
         val_data = SisaIterator(pd.read_csv(CONFIG.VAL_DATA))
+        test_data = SisaIterator(pd.read_csv(CONFIG.TEST_DATA))
         model = SessionInterestSelfAttention(num_item=max_item_id + 1, emb_dim=64, max_len=20, pad_id=CONFIG.PAD_ID)
-        ModelTrainer(arch='sisa', model=model, epoch=50, learning_rate=0.01)\
-            .run(train_data=train_data, val_data=val_data)
+        ModelTrainer(arch='sisa', model=model, epoch=100, learning_rate=0.01)\
+            .run(train_data=train_data, val_data=val_data, early_stop=7, monitor='val_acc')\
+            .test(test_data=test_data)
 
     elif args.run == 'deepfm':
         mapper = json.load(open(CONFIG.MAPPER, mode='r'))
@@ -44,11 +46,13 @@ def main():
 
         train_data = DeepFMIterator(train_data)
         val_data = DeepFMIterator(pd.read_csv(CONFIG.VAL_DATA))
+        test_data = DeepFMIterator(pd.read_csv(CONFIG.TEST_DATA))
         model = DeepFactorizationMachineModel(
             field_dims=[max_user_id, max_item_id], embed_dim=64, mlp_dims=[64, 32], dropout=0.2, device=CONFIG.DEVICE
         )
-        ModelTrainer(arch='deepfm', model=model, epoch=50, learning_rate=0.01)\
-            .run(train_data=train_data, val_data=val_data, early_stop=7, monitor='val_acc')
+        ModelTrainer(arch='deepfm', model=model, epoch=100, learning_rate=0.01)\
+            .run(train_data=train_data, val_data=val_data, early_stop=7, monitor='val_acc')\
+            .test(test_data=test_data)
 
 
 if __name__ == '__main__':

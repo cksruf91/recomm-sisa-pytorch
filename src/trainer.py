@@ -38,6 +38,6 @@ class ModelTrainer:
         return self
 
     def test(self, test_data: DataIterator):
+        test_loader = DataLoader(test_data, batch_size=32, shuffle=False)
         print('test model')
-        test_data = DataLoader(test_data, batch_size=32, shuffle=True)
-        summary = self.engine.train(train_loader=test_data, summary=summary)
+        self.engine.test(test_loader=test_loader)
